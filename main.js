@@ -7,6 +7,8 @@ let tvMesh;
 let leftPaddle, rightPaddle, ball;
 let clock;
 
+let backgroundGroup; // neon város háttér
+
 // Pong pálya méretek (a "TV" belsejében)
 const FIELD_WIDTH = 3.6;
 const FIELD_HEIGHT = 2.1;
@@ -44,7 +46,7 @@ let messageSprite, messageCanvas, messageCtx, messageTexture;
 
 // HUD fontméretek
 const SCORE_FONT_SIZE = 64;
-const MESSAGE_FONT_SIZE = 40; // kisebb, hogy biztosan kiférjen
+const MESSAGE_FONT_SIZE = 40;
 
 // Labda cyberpunk trail
 let ballTrailGroup;
@@ -55,7 +57,7 @@ let ballTrailIndex = 0;
 const input = {
   leftUp: false,
   leftDown: false,
-  rightUp: false,   // későbbi 2P módhoz
+  rightUp: false,
   rightDown: false,
 };
 
@@ -67,6 +69,7 @@ animate();
 function init() {
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x020308);
+  scene.fog = new THREE.FogExp2(0x020308, 0.1); // kicsit erősebb köd
 
   const width = window.innerWidth;
   const height = window.innerHeight;
@@ -83,12 +86,15 @@ function init() {
   clock = new THREE.Clock();
 
   // --- Fények ---
-  const ambient = new THREE.AmbientLight(0x4040ff, 0.6);
+  const ambient = new THREE.AmbientLight(0x4040ff, 0.5);
   scene.add(ambient);
 
   const dirLight = new THREE.SpotLight(0x00ffff, 2, 20, Math.PI / 6, 0.4, 1);
   dirLight.position.set(4, 5, 6);
   scene.add(dirLight);
+
+  // --- Háttér neon város ---
+  createBackground();
 
   // --- TV + keret ---
   createTV();
@@ -154,6 +160,80 @@ function onWindowResize() {
   renderer.setSize(width, height);
 }
 
+// --- Neon város háttér ---
+function createBackground() {
+  backgroundGroup = new THREE.Group();
+  scene.add(backgroundGroup);
+
+  // Talaj
+  const groundGeom = new THREE.PlaneGeometry(20, 20);
+  const groundMat = new THREE.MeshStandardMaterial({
+    color: 0x050810,
+    metalness: 0.6,
+    roughness: 0.9
+  });
+  const ground = new THREE.Mesh(groundGeom, groundMat);
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.y = -1.7;
+  ground.position.z = -4.0;
+  backgroundGroup.add(ground);
+
+  // Ég fényfolt
+  const skyGeom = new THREE.PlaneGeometry(12, 6);
+  const skyMat = new THREE.MeshBasicMaterial({
+    color: 0x001a26,
+    transparent: true,
+    opacity: 0.9
+  });
+  const sky = new THREE.Mesh(skyGeom, skyMat);
+  sky.position.set(0, 1.2, -9);
+  backgroundGroup.add(sky);
+
+  // Felhőkarcolók
+  for (let i = 0; i < 14; i++) {
+    const height = 1.2 + Math.random() * 3.0;
+    const width = 0.4 + Math.random() * 0.3;
+    const depth = 0.5 + Math.random() * 0.4;
+
+    const geom = new THREE.BoxGeometry(width, height, depth);
+
+    const baseColor = new THREE.Color().setHSL(0.55 + Math.random() * 0.1, 0.6, 0.15);
+    const emissiveColor = new THREE.Color().setHSL(0.48 + Math.random() * 0.1, 0.9, 0.6);
+
+    const mat = new THREE.MeshStandardMaterial({
+      color: baseColor,
+      metalness: 0.8,
+      roughness: 0.4,
+      emissive: emissiveColor,
+      emissiveIntensity: 0.5 + Math.random() * 0.4
+    });
+
+    const b = new THREE.Mesh(geom, mat);
+
+    const x = -6 + Math.random() * 12;
+    const z = -5 - Math.random() * 4;
+
+    b.position.set(x, -1.7 + height / 2, z);
+    backgroundGroup.add(b);
+  }
+
+  // Fényoszlopok
+  for (let i = 0; i < 6; i++) {
+    const h = 1.5 + Math.random() * 2.0;
+    const colGeom = new THREE.CylinderGeometry(0.04, 0.04, h, 12);
+    const colMat = new THREE.MeshBasicMaterial({
+      color: 0x00ffff,
+      transparent: true,
+      opacity: 0.7
+    });
+    const col = new THREE.Mesh(colGeom, colMat);
+    const x = -5 + Math.random() * 10;
+    const z = -3.5 - Math.random() * 3;
+    col.position.set(x, -1.7 + h / 2, z);
+    backgroundGroup.add(col);
+  }
+}
+
 // --- TV létrehozása (canvas a térben) ---
 function createTV() {
   const tvWidth = 4;
@@ -163,12 +243,12 @@ function createTV() {
   const tvGeometry = new THREE.BoxGeometry(tvWidth, tvHeight, tvDepth);
 
   const tvMaterial = new THREE.MeshStandardMaterial({
-    color: 0x05070b,        // sötét kéken csillanó üveg
+    color: 0x05070b,
     transparent: true,
-    opacity: 0.90,          // kevésbé átlátszó, jobban elválik a háttértől
+    opacity: 0.90,
     metalness: 0.85,
     roughness: 0.15,
-    emissive: 0x001824,     // sötétkék emissive
+    emissive: 0x001824,
     emissiveIntensity: 0.18
   });
 
@@ -208,7 +288,7 @@ function createTV() {
   const frameGroup = new THREE.Group();
   frameGroup.add(top, bottom, left, right);
 
-  tvMesh.add(frameGroup); // a keret a TV-hez van rögzítve
+  tvMesh.add(frameGroup);
 }
 
 // --- Paddles + labda ---
@@ -234,14 +314,12 @@ function createPaddlesAndBall() {
   leftPaddle = new THREE.Mesh(paddleGeom, leftMat);
   rightPaddle = new THREE.Mesh(paddleGeom, rightMat);
 
-  // pozíciók a TV belsejében
   leftPaddle.position.set(-FIELD_WIDTH / 2 + 0.2, 0, 0.06);
   rightPaddle.position.set(FIELD_WIDTH / 2 - 0.2, 0, 0.06);
 
   scene.add(leftPaddle);
   scene.add(rightPaddle);
 
-  // Labda
   const ballGeom = new THREE.SphereGeometry(0.08, 16, 16);
   const ballMat = new THREE.MeshStandardMaterial({
     color: 0xffffff,
@@ -286,20 +364,18 @@ function clearBallTrail() {
   ballTrailIndex = 0;
 }
 
-// Trail frissítése – csak akkor hívjuk, ha a labda tényleg mozog
 function updateBallTrail() {
   if (!ballTrailGroup || !ball) return;
 
   const seg = ballTrailGroup.children[ballTrailIndex];
   seg.position.copy(ball.position);
-  seg.position.z -= 0.01; // kicsit a labda mögött
+  seg.position.z -= 0.01;
   seg.scale.set(1, 1, 1);
   seg.material.opacity = 0.6;
   seg.visible = true;
 
   ballTrailIndex = (ballTrailIndex + 1) % TRAIL_SEGMENTS;
 
-  // A többi segment halványítása / zsugorítása
   ballTrailGroup.children.forEach((s) => {
     if (!s.visible) return;
     s.material.opacity *= 0.87;
@@ -311,25 +387,22 @@ function updateBallTrail() {
 }
 
 function resetBall() {
-  ball.position.set(0, 0, 0.07); // TV síkja előtt egy kicsivel
+  ball.position.set(0, 0, 0.07);
 
-  // random irány: balra vagy jobbra
   const dirX = Math.random() > 0.5 ? 1 : -1;
-  const dirY = Math.random() * 0.6 - 0.3; // -0.3 .. 0.3
+  const dirY = Math.random() * 0.6 - 0.3;
   ballVelocity.set(dirX, dirY).normalize();
   ballSpeed = 2.0;
 
-  // AI "hibázási" offset reset
   aiErrorOffset = 0;
   aiErrorTimer = 0;
 
-  // Trail törlése
   clearBallTrail();
 }
 
 // --- HUD létrehozása ---
 function createHUD() {
-  // Score sprite (normál szélesség)
+  // Score sprite
   {
     const score = createTextSprite('Player 0 : 0 AI', SCORE_FONT_SIZE, 512);
     scoreSprite = score.sprite;
@@ -337,12 +410,12 @@ function createHUD() {
     scoreCtx = score.ctx;
     scoreTexture = score.texture;
 
-    scoreSprite.position.set(0, 1.9, 0); // TV fölött lebeg
+    scoreSprite.position.set(0, 1.9, 0.25); // kicsit előrébb Z-ben
     scoreSprite.scale.set(2.4, 0.6, 1);
     scene.add(scoreSprite);
   }
 
-  // Message sprite (szélesebb canvas, hogy kiférjen a hosszú szöveg)
+  // Message sprite
   {
     const message = createTextSprite('', MESSAGE_FONT_SIZE, 1024);
     messageSprite = message.sprite;
@@ -350,8 +423,8 @@ function createHUD() {
     messageCtx = message.ctx;
     messageTexture = message.texture;
 
-    messageSprite.position.set(0, -1.9, 0); // TV alatt
-    messageSprite.scale.set(3.0, 0.7, 1);
+    messageSprite.position.set(0, -1.9, 0.25); // előrébb + kicsit magasabb
+    messageSprite.scale.set(3.0, 0.9, 1);      // magasabb, nem lesz "vonal"
     scene.add(messageSprite);
   }
 
@@ -359,12 +432,11 @@ function createHUD() {
   updateMessageHUD('');
 }
 
-// Kis helper: text sprite készítése CanvasTexture-vel
 function createTextSprite(initialText, fontSize, width = 512) {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
 
-  canvas.width = width;  // különböző szélesség engedélyezett
+  canvas.width = width;
   canvas.height = 256;
 
   const texture = new THREE.CanvasTexture(canvas);
@@ -373,6 +445,8 @@ function createTextSprite(initialText, fontSize, width = 512) {
   const material = new THREE.SpriteMaterial({
     map: texture,
     transparent: true,
+    depthWrite: false, // HUD mindig előrébb
+    depthTest: false,
   });
 
   const sprite = new THREE.Sprite(material);
@@ -388,15 +462,13 @@ function drawTextToCanvas(canvas, ctx, texture, text, fontSize) {
 
   ctx.clearRect(0, 0, w, h);
 
-  // háttér enyhén átlátszó fekete-glow
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
   ctx.fillRect(0, 0, w, h);
 
   ctx.font = `bold ${fontSize}px system-ui`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
-  // külső "glow"
   ctx.shadowColor = '#00ffff';
   ctx.shadowBlur = 22;
 
@@ -408,14 +480,12 @@ function drawTextToCanvas(canvas, ctx, texture, text, fontSize) {
   }
 }
 
-// Score HUD frissítése
 function updateScoreHUD() {
   if (!scoreCanvas || !scoreCtx || !scoreTexture) return;
   const text = `Player ${leftScore} : ${rightScore} AI`;
   drawTextToCanvas(scoreCanvas, scoreCtx, scoreTexture, text, SCORE_FONT_SIZE);
 }
 
-// Üzenet HUD frissítése
 function updateMessageHUD(msg) {
   if (!messageCanvas || !messageCtx || !messageTexture) return;
   drawTextToCanvas(messageCanvas, messageCtx, messageTexture, msg, MESSAGE_FONT_SIZE);
@@ -429,7 +499,6 @@ function resetMatch() {
   roundCooldown = 0;
   updateScoreHUD();
   updateMessageHUD('');
-
   resetBall();
 }
 
@@ -438,11 +507,21 @@ function animate() {
   const dt = clock.getDelta();
   const t = clock.elapsedTime;
 
-  // TV kis lebegése / billegése
   tvMesh.rotation.y = Math.sin(t * 0.1) * 0.15;
   tvMesh.rotation.x = Math.cos(t * 0.1) * 0.05;
 
-  // Labda pulzáló emissive + scale (cyberpunk glow)
+  if (backgroundGroup) {
+    backgroundGroup.children.forEach((obj, idx) => {
+      const mat = obj.material;
+      if (mat && mat.emissive) {
+        const flicker = 0.3 + 0.4 * (0.5 + 0.5 * Math.sin(t * 2.0 + idx));
+        if (typeof mat.emissiveIntensity === 'number') {
+          mat.emissiveIntensity = 0.2 + flicker * 0.5;
+        }
+      }
+    });
+  }
+
   if (ball) {
     const pulse = 1 + 0.15 * Math.sin(t * 8.0);
     ball.scale.set(pulse, pulse, pulse);
@@ -464,22 +543,18 @@ function animate() {
 function updateGame(dt) {
   const maxY = FIELD_HEIGHT / 2 - PADDLE_HEIGHT / 2;
 
-  // --- Bal paddle: játékos (W / S) ---
   if (input.leftUp) leftPaddle.position.y += PADDLE_SPEED * dt;
   if (input.leftDown) leftPaddle.position.y -= PADDLE_SPEED * dt;
   leftPaddle.position.y = THREE.MathUtils.clamp(leftPaddle.position.y, -maxY, maxY);
 
-  // --- Jobb paddle: AI vagy játékos ---
   if (USE_AI_RIGHT_PADDLE) {
     updateRightPaddleAI(dt, maxY);
   } else {
-    // 2P mód esetére: ArrowUp / ArrowDown
     if (input.rightUp) rightPaddle.position.y += PADDLE_SPEED * dt;
     if (input.rightDown) rightPaddle.position.y -= PADDLE_SPEED * dt;
     rightPaddle.position.y = THREE.MathUtils.clamp(rightPaddle.position.y, -maxY, maxY);
   }
 
-  // --- Round / game state logika ---
   if (gameState === 'roundOver') {
     roundCooldown -= dt;
     if (roundCooldown <= 0) {
@@ -487,26 +562,21 @@ function updateGame(dt) {
       resetBall();
       gameState = 'playing';
     }
-    // roundOver alatt a labda nem mozog
     return;
   }
 
   if (gameState === 'gameOver') {
-    // gameOver-ben a labda se mozog
     return;
   }
 
-  // --- Labda mozgás csak 'playing' állapotban ---
   ball.position.x += ballVelocity.x * ballSpeed * dt;
   ball.position.y += ballVelocity.y * ballSpeed * dt;
 
-  // Trail frissítése (csak ha tényleg mozog)
   updateBallTrail();
 
   const halfFieldW = FIELD_WIDTH / 2;
   const halfFieldH = FIELD_HEIGHT / 2;
 
-  // Felső / alsó fal
   if (ball.position.y > halfFieldH) {
     ball.position.y = halfFieldH;
     ballVelocity.y *= -1;
@@ -515,21 +585,16 @@ function updateGame(dt) {
     ballVelocity.y *= -1;
   }
 
-  // Ütközés paddle-ekkel
   checkPaddleCollision(leftPaddle);
   checkPaddleCollision(rightPaddle);
 
-  // Ha kimegy balra/jobbra → pont
   if (ball.position.x < -halfFieldW - 0.2) {
-    // AI szerez pontot
     onScore('right');
   } else if (ball.position.x > halfFieldW + 0.2) {
-    // Player szerez pontot
     onScore('left');
   }
 }
 
-// --- Pont szerzés és állapotkezelés ---
 function onScore(side) {
   if (side === 'left') {
     leftScore++;
@@ -539,7 +604,6 @@ function onScore(side) {
 
   updateScoreHUD();
 
-  // Nyert-e valaki?
   if (leftScore >= WIN_SCORE || rightScore >= WIN_SCORE) {
     gameState = 'gameOver';
     const winner = leftScore >= WIN_SCORE ? 'Player' : 'AI';
@@ -552,18 +616,15 @@ function onScore(side) {
   }
 }
 
-// --- AI logika a jobb oldali paddle-hez ---
 function updateRightPaddleAI(dt, maxY) {
-  // Minden AI_ERROR_CHANGE_INTERVAL_MIN–MAX másodpercben új "hiba" offsetet kap
   aiErrorTimer -= dt;
   if (aiErrorTimer <= 0) {
     aiErrorTimer =
       AI_ERROR_CHANGE_INTERVAL_MIN +
       Math.random() * (AI_ERROR_CHANGE_INTERVAL_MAX - AI_ERROR_CHANGE_INTERVAL_MIN);
-    aiErrorOffset = (Math.random() * 2 - 1) * AI_ERROR_OFFSET_MAX; // -max .. +max
+    aiErrorOffset = (Math.random() * 2 - 1) * AI_ERROR_OFFSET_MAX;
   }
 
-  // A paddle a labda Y pozícióját próbálja követni, de az offset miatt kicsit mellé megy
   const targetY = THREE.MathUtils.clamp(
     ball.position.y + aiErrorOffset,
     -maxY,
@@ -573,23 +634,20 @@ function updateRightPaddleAI(dt, maxY) {
   const dy = targetY - rightPaddle.position.y;
   const maxMove = AI_FOLLOW_SPEED * dt;
 
-  // Ne mozduljon többet, mint a maxMove, így "csúszik" utána
   const move = THREE.MathUtils.clamp(dy, -maxMove, maxMove);
   rightPaddle.position.y += move;
   rightPaddle.position.y = THREE.MathUtils.clamp(rightPaddle.position.y, -maxY, maxY);
 }
 
-// --- Ütközés paddle-ekkel ---
 function checkPaddleCollision(paddle) {
   const paddleX = paddle.position.x;
   const paddleY = paddle.position.y;
 
-  const thresholdX = 0.12; // mennyire közel X-ben
+  const thresholdX = 0.12;
   const withinX = Math.abs(ball.position.x - paddleX) < thresholdX;
   const withinY =
     Math.abs(ball.position.y - paddleY) < PADDLE_HEIGHT / 2 + 0.08;
 
-  // Labda X iránya a paddle felé mutat-e?
   const ballGoingTowardsPaddle =
     (paddleX < 0 && ballVelocity.x < 0) ||
     (paddleX > 0 && ballVelocity.x > 0);
@@ -597,12 +655,10 @@ function checkPaddleCollision(paddle) {
   if (withinX && withinY && ballGoingTowardsPaddle) {
     ballVelocity.x *= -1;
 
-    // kis "spin" a találat magasságától függően
     const offset = ball.position.y - paddleY;
     ballVelocity.y += offset * 1.5;
     ballVelocity.normalize();
 
-    // gyorsítsunk kicsit
     ballSpeed = Math.min(ballSpeed + 0.2, 5.0);
   }
 }
