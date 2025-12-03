@@ -30,11 +30,32 @@ const AI_ERROR_CHANGE_INTERVAL_MAX = 1.4; // mp – maximum
 let aiErrorOffset = 0; // aktuális mellélövési offset
 let aiErrorTimer = 0;  // időzítő az új offsethez
 
+// --- Score / HUD ---
+let leftScore = 0;
+let rightScore = 0;
+const WIN_SCORE = 5;
+
+let gameState = 'playing'; // 'playing' | 'roundOver' | 'gameOver'
+let roundCooldown = 0;
+
+// HUD elemek
+let scoreSprite, scoreCanvas, scoreCtx, scoreTexture;
+let messageSprite, messageCanvas, messageCtx, messageTexture;
+
+// HUD fontméretek
+const SCORE_FONT_SIZE = 64;
+const MESSAGE_FONT_SIZE = 40; // kisebb, hogy biztosan kiférjen
+
+// Labda cyberpunk trail
+let ballTrailGroup;
+const TRAIL_SEGMENTS = 18;
+let ballTrailIndex = 0;
+
 // Input állapot (bal játékos: W / S)
 const input = {
   leftUp: false,
   leftDown: false,
-  rightUp: false,   // most nem használjuk, de meghagyjuk, ha később 2P módot akarunk
+  rightUp: false,   // későbbi 2P módhoz
   rightDown: false,
 };
 
@@ -75,6 +96,12 @@ function init() {
   // --- Paddles + labda ---
   createPaddlesAndBall();
 
+  // --- Labda trail ---
+  createBallTrail();
+
+  // --- HUD ---
+  createHUD();
+
   // --- Eseménykezelők ---
   window.addEventListener('resize', onWindowResize);
 
@@ -87,10 +114,15 @@ function init() {
         input.leftDown = true;
         break;
       case 'ArrowUp':
-        input.rightUp = true; // most nem használjuk, de marad
+        input.rightUp = true;
         break;
       case 'ArrowDown':
         input.rightDown = true;
+        break;
+      case 'Space':
+        if (gameState === 'gameOver') {
+          resetMatch();
+        }
         break;
     }
   });
@@ -131,13 +163,13 @@ function createTV() {
   const tvGeometry = new THREE.BoxGeometry(tvWidth, tvHeight, tvDepth);
 
   const tvMaterial = new THREE.MeshStandardMaterial({
-    color: 0x05070b, // sötét “üveg”
+    color: 0x05070b,        // sötét kéken csillanó üveg
     transparent: true,
-    opacity: 0.7,
-    metalness: 0.9,
-    roughness: 0.2,
-    emissive: 0x00c8ff, // halvány neon
-    emissiveIntensity: 0.2,
+    opacity: 0.90,          // kevésbé átlátszó, jobban elválik a háttértől
+    metalness: 0.85,
+    roughness: 0.15,
+    emissive: 0x001824,     // sötétkék emissive
+    emissiveIntensity: 0.18
   });
 
   tvMesh = new THREE.Mesh(tvGeometry, tvMaterial);
@@ -146,7 +178,7 @@ function createTV() {
 
   // Neon keret
   const frameMaterial = new THREE.MeshBasicMaterial({
-    color: 0x00ffff,
+    color: 0x00ffff
   });
 
   const frameThickness = 0.03;
@@ -186,7 +218,7 @@ function createPaddlesAndBall() {
   const leftMat = new THREE.MeshStandardMaterial({
     color: 0x00ffea,
     emissive: 0x00ffff,
-    emissiveIntensity: 0.5,
+    emissiveIntensity: 0.7,
     metalness: 0.8,
     roughness: 0.3,
   });
@@ -194,7 +226,7 @@ function createPaddlesAndBall() {
   const rightMat = new THREE.MeshStandardMaterial({
     color: 0xff00ff,
     emissive: 0xff00ff,
-    emissiveIntensity: 0.5,
+    emissiveIntensity: 0.7,
     metalness: 0.8,
     roughness: 0.3,
   });
@@ -224,6 +256,60 @@ function createPaddlesAndBall() {
   scene.add(ball);
 }
 
+// --- Labda trail létrehozása ---
+function createBallTrail() {
+  ballTrailGroup = new THREE.Group();
+
+  const trailGeom = new THREE.SphereGeometry(0.06, 12, 12);
+
+  for (let i = 0; i < TRAIL_SEGMENTS; i++) {
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0x00ffff,
+      transparent: true,
+      opacity: 0.0
+    });
+    const seg = new THREE.Mesh(trailGeom, mat);
+    seg.visible = false;
+    ballTrailGroup.add(seg);
+  }
+
+  scene.add(ballTrailGroup);
+}
+
+function clearBallTrail() {
+  if (!ballTrailGroup) return;
+  ballTrailGroup.children.forEach(seg => {
+    seg.visible = false;
+    seg.material.opacity = 0.0;
+    seg.scale.set(1, 1, 1);
+  });
+  ballTrailIndex = 0;
+}
+
+// Trail frissítése – csak akkor hívjuk, ha a labda tényleg mozog
+function updateBallTrail() {
+  if (!ballTrailGroup || !ball) return;
+
+  const seg = ballTrailGroup.children[ballTrailIndex];
+  seg.position.copy(ball.position);
+  seg.position.z -= 0.01; // kicsit a labda mögött
+  seg.scale.set(1, 1, 1);
+  seg.material.opacity = 0.6;
+  seg.visible = true;
+
+  ballTrailIndex = (ballTrailIndex + 1) % TRAIL_SEGMENTS;
+
+  // A többi segment halványítása / zsugorítása
+  ballTrailGroup.children.forEach((s) => {
+    if (!s.visible) return;
+    s.material.opacity *= 0.87;
+    s.scale.multiplyScalar(0.96);
+    if (s.material.opacity < 0.04) {
+      s.visible = false;
+    }
+  });
+}
+
 function resetBall() {
   ball.position.set(0, 0, 0.07); // TV síkja előtt egy kicsivel
 
@@ -236,6 +322,115 @@ function resetBall() {
   // AI "hibázási" offset reset
   aiErrorOffset = 0;
   aiErrorTimer = 0;
+
+  // Trail törlése
+  clearBallTrail();
+}
+
+// --- HUD létrehozása ---
+function createHUD() {
+  // Score sprite (normál szélesség)
+  {
+    const score = createTextSprite('Player 0 : 0 AI', SCORE_FONT_SIZE, 512);
+    scoreSprite = score.sprite;
+    scoreCanvas = score.canvas;
+    scoreCtx = score.ctx;
+    scoreTexture = score.texture;
+
+    scoreSprite.position.set(0, 1.9, 0); // TV fölött lebeg
+    scoreSprite.scale.set(2.4, 0.6, 1);
+    scene.add(scoreSprite);
+  }
+
+  // Message sprite (szélesebb canvas, hogy kiférjen a hosszú szöveg)
+  {
+    const message = createTextSprite('', MESSAGE_FONT_SIZE, 1024);
+    messageSprite = message.sprite;
+    messageCanvas = message.canvas;
+    messageCtx = message.ctx;
+    messageTexture = message.texture;
+
+    messageSprite.position.set(0, -1.9, 0); // TV alatt
+    messageSprite.scale.set(3.0, 0.7, 1);
+    scene.add(messageSprite);
+  }
+
+  updateScoreHUD();
+  updateMessageHUD('');
+}
+
+// Kis helper: text sprite készítése CanvasTexture-vel
+function createTextSprite(initialText, fontSize, width = 512) {
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+
+  canvas.width = width;  // különböző szélesség engedélyezett
+  canvas.height = 256;
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+  });
+
+  const sprite = new THREE.Sprite(material);
+
+  drawTextToCanvas(canvas, ctx, texture, initialText, fontSize);
+
+  return { sprite, canvas, ctx, texture };
+}
+
+function drawTextToCanvas(canvas, ctx, texture, text, fontSize) {
+  const w = canvas.width;
+  const h = canvas.height;
+
+  ctx.clearRect(0, 0, w, h);
+
+  // háttér enyhén átlátszó fekete-glow
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.font = `bold ${fontSize}px system-ui`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // külső "glow"
+  ctx.shadowColor = '#00ffff';
+  ctx.shadowBlur = 22;
+
+  ctx.fillStyle = '#a2f7ff';
+  ctx.fillText(text, w / 2, h / 2);
+
+  if (texture) {
+    texture.needsUpdate = true;
+  }
+}
+
+// Score HUD frissítése
+function updateScoreHUD() {
+  if (!scoreCanvas || !scoreCtx || !scoreTexture) return;
+  const text = `Player ${leftScore} : ${rightScore} AI`;
+  drawTextToCanvas(scoreCanvas, scoreCtx, scoreTexture, text, SCORE_FONT_SIZE);
+}
+
+// Üzenet HUD frissítése
+function updateMessageHUD(msg) {
+  if (!messageCanvas || !messageCtx || !messageTexture) return;
+  drawTextToCanvas(messageCanvas, messageCtx, messageTexture, msg, MESSAGE_FONT_SIZE);
+}
+
+// --- Match reset ---
+function resetMatch() {
+  leftScore = 0;
+  rightScore = 0;
+  gameState = 'playing';
+  roundCooldown = 0;
+  updateScoreHUD();
+  updateMessageHUD('');
+
+  resetBall();
 }
 
 // --- Animációs loop ---
@@ -246,6 +441,18 @@ function animate() {
   // TV kis lebegése / billegése
   tvMesh.rotation.y = Math.sin(t * 0.1) * 0.15;
   tvMesh.rotation.x = Math.cos(t * 0.1) * 0.05;
+
+  // Labda pulzáló emissive + scale (cyberpunk glow)
+  if (ball) {
+    const pulse = 1 + 0.15 * Math.sin(t * 8.0);
+    ball.scale.set(pulse, pulse, pulse);
+
+    const mat = ball.material;
+    if (mat && typeof mat.emissiveIntensity === 'number') {
+      const glow = 0.8 + 0.4 * (0.5 + 0.5 * Math.sin(t * 8.0));
+      mat.emissiveIntensity = glow;
+    }
+  }
 
   updateGame(dt);
 
@@ -272,9 +479,29 @@ function updateGame(dt) {
     rightPaddle.position.y = THREE.MathUtils.clamp(rightPaddle.position.y, -maxY, maxY);
   }
 
-  // --- Labda mozgás ---
+  // --- Round / game state logika ---
+  if (gameState === 'roundOver') {
+    roundCooldown -= dt;
+    if (roundCooldown <= 0) {
+      updateMessageHUD('');
+      resetBall();
+      gameState = 'playing';
+    }
+    // roundOver alatt a labda nem mozog
+    return;
+  }
+
+  if (gameState === 'gameOver') {
+    // gameOver-ben a labda se mozog
+    return;
+  }
+
+  // --- Labda mozgás csak 'playing' állapotban ---
   ball.position.x += ballVelocity.x * ballSpeed * dt;
   ball.position.y += ballVelocity.y * ballSpeed * dt;
+
+  // Trail frissítése (csak ha tényleg mozog)
+  updateBallTrail();
 
   const halfFieldW = FIELD_WIDTH / 2;
   const halfFieldH = FIELD_HEIGHT / 2;
@@ -292,9 +519,36 @@ function updateGame(dt) {
   checkPaddleCollision(leftPaddle);
   checkPaddleCollision(rightPaddle);
 
-  // Ha kimegy balra/jobbra → reset
-  if (ball.position.x < -halfFieldW - 0.2 || ball.position.x > halfFieldW + 0.2) {
-    resetBall();
+  // Ha kimegy balra/jobbra → pont
+  if (ball.position.x < -halfFieldW - 0.2) {
+    // AI szerez pontot
+    onScore('right');
+  } else if (ball.position.x > halfFieldW + 0.2) {
+    // Player szerez pontot
+    onScore('left');
+  }
+}
+
+// --- Pont szerzés és állapotkezelés ---
+function onScore(side) {
+  if (side === 'left') {
+    leftScore++;
+  } else {
+    rightScore++;
+  }
+
+  updateScoreHUD();
+
+  // Nyert-e valaki?
+  if (leftScore >= WIN_SCORE || rightScore >= WIN_SCORE) {
+    gameState = 'gameOver';
+    const winner = leftScore >= WIN_SCORE ? 'Player' : 'AI';
+    updateMessageHUD(`${winner} Wins!  (Press SPACE to restart)`);
+  } else {
+    gameState = 'roundOver';
+    roundCooldown = 1.2;
+    const msg = side === 'left' ? 'Player Scores!' : 'AI Scores!';
+    updateMessageHUD(msg);
   }
 }
 
