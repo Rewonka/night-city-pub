@@ -1,13 +1,15 @@
 // main.js
 import * as THREE from 'https://unpkg.com/three@0.181.2/build/three.module.js';
+import { VRButton } from 'https://unpkg.com/three@0.181.2/examples/jsm/webxr/VRButton.js';
 
 // --- Globális változók ---
 let scene, camera, renderer;
+let gameGroup;              // az egész játék (TV + háttér + HUD) ebben van
 let tvMesh;
 let leftPaddle, rightPaddle, ball;
 let clock;
 
-let backgroundGroup; // neon város háttér
+let backgroundGroup;        // neon város háttér
 
 // Pong pálya méretek (a "TV" belsejében)
 const FIELD_WIDTH = 3.6;
@@ -16,21 +18,21 @@ const FIELD_HEIGHT = 2.1;
 const PADDLE_WIDTH = 0.1;
 const PADDLE_HEIGHT = 0.5;
 
-const PADDLE_SPEED = 2.5; // emberi paddle sebessége (bal oldal)
+const PADDLE_SPEED = 2.5;
 
 // Labda
-let ballVelocity = new THREE.Vector2(1, 0.5); // irány
-let ballSpeed = 2.0; // egység / másodperc
+let ballVelocity = new THREE.Vector2(1, 0.5);
+let ballSpeed = 2.0;
 
-// --- AI beállítások (jobb oldali paddle) ---
+// --- AI beállítások ---
 const USE_AI_RIGHT_PADDLE = true;
-const AI_FOLLOW_SPEED = 3.0;        // milyen gyorsan követi a labdát
-const AI_ERROR_OFFSET_MAX = 0.25;   // mennyire célozhat mellé (véletlen offset)
-const AI_ERROR_CHANGE_INTERVAL_MIN = 0.6; // mp – milyen gyakran változik az offset minimum
-const AI_ERROR_CHANGE_INTERVAL_MAX = 1.4; // mp – maximum
+const AI_FOLLOW_SPEED = 3.0;
+const AI_ERROR_OFFSET_MAX = 0.25;
+const AI_ERROR_CHANGE_INTERVAL_MIN = 0.6;
+const AI_ERROR_CHANGE_INTERVAL_MAX = 1.4;
 
-let aiErrorOffset = 0; // aktuális mellélövési offset
-let aiErrorTimer = 0;  // időzítő az új offsethez
+let aiErrorOffset = 0;
+let aiErrorTimer = 0;
 
 // --- Score / HUD ---
 let leftScore = 0;
@@ -44,16 +46,15 @@ let roundCooldown = 0;
 let scoreSprite, scoreCanvas, scoreCtx, scoreTexture;
 let messageSprite, messageCanvas, messageCtx, messageTexture;
 
-// HUD fontméretek
 const SCORE_FONT_SIZE = 64;
 const MESSAGE_FONT_SIZE = 40;
 
-// Labda cyberpunk trail
+// Labda trail
 let ballTrailGroup;
 const TRAIL_SEGMENTS = 18;
 let ballTrailIndex = 0;
 
-// Input állapot (bal játékos: W / S)
+// Input (bal játékos: W/S)
 const input = {
   leftUp: false,
   leftDown: false,
@@ -61,29 +62,39 @@ const input = {
   rightDown: false,
 };
 
-// --- Init + loop ---
+// --- Init ---
 init();
-animate();
 
-// --- Fő init függvény ---
 function init() {
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x020308);
-  scene.fog = new THREE.FogExp2(0x020308, 0.1); // kicsit erősebb köd
+  scene.fog = new THREE.FogExp2(0x020308, 0.1);
 
   const width = window.innerWidth;
   const height = window.innerHeight;
 
   camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 100);
-  camera.position.set(0, 0, 6);
-  camera.lookAt(0, 0, 0);
+  // Desktop nézetben “ember-magasságban” és picit hátrébb
+  camera.position.set(0, 1.6, 0);
+  camera.lookAt(0, 1.2, -3);
 
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(width, height);
   renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.xr.enabled = true;
   document.body.appendChild(renderer.domElement);
 
+  const vrButton = VRButton.createButton(renderer);
+  document.body.appendChild(vrButton);
+
   clock = new THREE.Clock();
+
+  // --- Játék csoport ---
+  gameGroup = new THREE.Group();
+  // VR-ben a fej pozíciója kb (0, ~1.6, 0), ehhez képest:
+  gameGroup.position.set(0, 1.2, -3);  // TV kicsit lejjebb és előrébb
+  gameGroup.scale.set(0.8, 0.8, 0.8);  // kissé kisebb “makett” hatás
+  scene.add(gameGroup);
 
   // --- Fények ---
   const ambient = new THREE.AmbientLight(0x4040ff, 0.5);
@@ -149,9 +160,11 @@ function init() {
         break;
     }
   });
+
+  renderer.setAnimationLoop(renderLoop);
 }
 
-// --- Ablakméret változás ---
+// --- Resize ---
 function onWindowResize() {
   const width = window.innerWidth;
   const height = window.innerHeight;
@@ -163,9 +176,8 @@ function onWindowResize() {
 // --- Neon város háttér ---
 function createBackground() {
   backgroundGroup = new THREE.Group();
-  scene.add(backgroundGroup);
+  gameGroup.add(backgroundGroup);
 
-  // Talaj
   const groundGeom = new THREE.PlaneGeometry(20, 20);
   const groundMat = new THREE.MeshStandardMaterial({
     color: 0x050810,
@@ -178,7 +190,6 @@ function createBackground() {
   ground.position.z = -4.0;
   backgroundGroup.add(ground);
 
-  // Ég fényfolt
   const skyGeom = new THREE.PlaneGeometry(12, 6);
   const skyMat = new THREE.MeshBasicMaterial({
     color: 0x001a26,
@@ -189,7 +200,6 @@ function createBackground() {
   sky.position.set(0, 1.2, -9);
   backgroundGroup.add(sky);
 
-  // Felhőkarcolók
   for (let i = 0; i < 14; i++) {
     const height = 1.2 + Math.random() * 3.0;
     const width = 0.4 + Math.random() * 0.3;
@@ -217,7 +227,6 @@ function createBackground() {
     backgroundGroup.add(b);
   }
 
-  // Fényoszlopok
   for (let i = 0; i < 6; i++) {
     const h = 1.5 + Math.random() * 2.0;
     const colGeom = new THREE.CylinderGeometry(0.04, 0.04, h, 12);
@@ -234,7 +243,7 @@ function createBackground() {
   }
 }
 
-// --- TV létrehozása (canvas a térben) ---
+// --- TV ---
 function createTV() {
   const tvWidth = 4;
   const tvHeight = 2.5;
@@ -254,9 +263,8 @@ function createTV() {
 
   tvMesh = new THREE.Mesh(tvGeometry, tvMaterial);
   tvMesh.position.set(0, 0, 0);
-  scene.add(tvMesh);
+  gameGroup.add(tvMesh);
 
-  // Neon keret
   const frameMaterial = new THREE.MeshBasicMaterial({
     color: 0x00ffff
   });
@@ -317,8 +325,8 @@ function createPaddlesAndBall() {
   leftPaddle.position.set(-FIELD_WIDTH / 2 + 0.2, 0, 0.06);
   rightPaddle.position.set(FIELD_WIDTH / 2 - 0.2, 0, 0.06);
 
-  scene.add(leftPaddle);
-  scene.add(rightPaddle);
+  gameGroup.add(leftPaddle);
+  gameGroup.add(rightPaddle);
 
   const ballGeom = new THREE.SphereGeometry(0.08, 16, 16);
   const ballMat = new THREE.MeshStandardMaterial({
@@ -331,10 +339,10 @@ function createPaddlesAndBall() {
 
   ball = new THREE.Mesh(ballGeom, ballMat);
   resetBall();
-  scene.add(ball);
+  gameGroup.add(ball);
 }
 
-// --- Labda trail létrehozása ---
+// --- Labda trail ---
 function createBallTrail() {
   ballTrailGroup = new THREE.Group();
 
@@ -351,7 +359,7 @@ function createBallTrail() {
     ballTrailGroup.add(seg);
   }
 
-  scene.add(ballTrailGroup);
+  gameGroup.add(ballTrailGroup);
 }
 
 function clearBallTrail() {
@@ -400,9 +408,8 @@ function resetBall() {
   clearBallTrail();
 }
 
-// --- HUD létrehozása ---
+// --- HUD ---
 function createHUD() {
-  // Score sprite
   {
     const score = createTextSprite('Player 0 : 0 AI', SCORE_FONT_SIZE, 512);
     scoreSprite = score.sprite;
@@ -410,12 +417,11 @@ function createHUD() {
     scoreCtx = score.ctx;
     scoreTexture = score.texture;
 
-    scoreSprite.position.set(0, 1.9, 0.25); // kicsit előrébb Z-ben
+    scoreSprite.position.set(0, 1.9, 0.25);
     scoreSprite.scale.set(2.4, 0.6, 1);
-    scene.add(scoreSprite);
+    gameGroup.add(scoreSprite);
   }
 
-  // Message sprite
   {
     const message = createTextSprite('', MESSAGE_FONT_SIZE, 1024);
     messageSprite = message.sprite;
@@ -423,9 +429,9 @@ function createHUD() {
     messageCtx = message.ctx;
     messageTexture = message.texture;
 
-    messageSprite.position.set(0, -1.9, 0.25); // előrébb + kicsit magasabb
-    messageSprite.scale.set(3.0, 0.9, 1);      // magasabb, nem lesz "vonal"
-    scene.add(messageSprite);
+    messageSprite.position.set(0, -1.9, 0.25);
+    messageSprite.scale.set(3.0, 0.9, 1);
+    gameGroup.add(messageSprite);
   }
 
   updateScoreHUD();
@@ -445,7 +451,7 @@ function createTextSprite(initialText, fontSize, width = 512) {
   const material = new THREE.SpriteMaterial({
     map: texture,
     transparent: true,
-    depthWrite: false, // HUD mindig előrébb
+    depthWrite: false,
     depthTest: false,
   });
 
@@ -502,14 +508,16 @@ function resetMatch() {
   resetBall();
 }
 
-// --- Animációs loop ---
-function animate() {
+// --- XR-kompatibilis render loop ---
+function renderLoop() {
   const dt = clock.getDelta();
   const t = clock.elapsedTime;
 
+  // TV enyhe lebegése
   tvMesh.rotation.y = Math.sin(t * 0.1) * 0.15;
   tvMesh.rotation.x = Math.cos(t * 0.1) * 0.05;
 
+  // Város villogása
   if (backgroundGroup) {
     backgroundGroup.children.forEach((obj, idx) => {
       const mat = obj.material;
@@ -522,6 +530,7 @@ function animate() {
     });
   }
 
+  // Labda pulzálás
   if (ball) {
     const pulse = 1 + 0.15 * Math.sin(t * 8.0);
     ball.scale.set(pulse, pulse, pulse);
@@ -536,7 +545,6 @@ function animate() {
   updateGame(dt);
 
   renderer.render(scene, camera);
-  requestAnimationFrame(animate);
 }
 
 // --- Pong logika ---
@@ -616,6 +624,7 @@ function onScore(side) {
   }
 }
 
+// --- AI ---
 function updateRightPaddleAI(dt, maxY) {
   aiErrorTimer -= dt;
   if (aiErrorTimer <= 0) {
@@ -639,6 +648,7 @@ function updateRightPaddleAI(dt, maxY) {
   rightPaddle.position.y = THREE.MathUtils.clamp(rightPaddle.position.y, -maxY, maxY);
 }
 
+// --- Ütközés ---
 function checkPaddleCollision(paddle) {
   const paddleX = paddle.position.x;
   const paddleY = paddle.position.y;
