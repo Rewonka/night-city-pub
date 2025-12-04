@@ -11,6 +11,21 @@ let clock;
 
 let backgroundGroup;        // neon város háttér
 
+// VR mód jelzése
+let isVR = false;
+
+// VR kontrollerek
+let rightController = null;
+let leftController = null;
+let useVRRightPaddle = false;
+
+// VR gomb állapot követés (edge detection)
+let prevRightButtons = [];
+
+// VR Y-skála és kalibráció
+const VR_Y_SCALE = 2.0;     // kontroller Y felskálázása
+let vrCenterOffset = 0;     // mennyit kell eltolni, hogy a jelenlegi kézpozíció legyen a pálya közepe
+
 // Pong pálya méretek (a "TV" belsejében)
 const FIELD_WIDTH = 3.6;
 const FIELD_HEIGHT = 2.1;
@@ -24,8 +39,7 @@ const PADDLE_SPEED = 2.5;
 let ballVelocity = new THREE.Vector2(1, 0.5);
 let ballSpeed = 2.0;
 
-// --- AI beállítások ---
-const USE_AI_RIGHT_PADDLE = true;
+// --- AI beállítások (bal paddlera) ---
 const AI_FOLLOW_SPEED = 3.0;
 const AI_ERROR_OFFSET_MAX = 0.25;
 const AI_ERROR_CHANGE_INTERVAL_MIN = 0.6;
@@ -54,12 +68,10 @@ let ballTrailGroup;
 const TRAIL_SEGMENTS = 18;
 let ballTrailIndex = 0;
 
-// Input (bal játékos: W/S)
+// Input (desktop: játékos a JOBB paddlet irányítja W/S-sel)
 const input = {
-  leftUp: false,
-  leftDown: false,
-  rightUp: false,
-  rightDown: false,
+  rightUp: false,   // W
+  rightDown: false, // S
 };
 
 // --- Init ---
@@ -87,11 +99,19 @@ function init() {
   const vrButton = VRButton.createButton(renderer);
   document.body.appendChild(vrButton);
 
+  // VR session események – tudjuk, hogy VR-ben vagyunk-e
+  renderer.xr.addEventListener('sessionstart', () => {
+    isVR = true;
+  });
+  renderer.xr.addEventListener('sessionend', () => {
+    isVR = false;
+  });
+
   clock = new THREE.Clock();
 
   // --- Játék csoport ---
   gameGroup = new THREE.Group();
-  // VR-ben a fej pozíciója kb (0, ~1.6, 0), ehhez képest:
+  // VR-ben a fej pozíciója kb (0, 1.6, 0), ehhez képest:
   gameGroup.position.set(0, 1.2, -3);  // TV kicsit lejjebb és előrébb
   gameGroup.scale.set(0.8, 0.8, 0.8);  // kissé kisebb “makett” hatás
   scene.add(gameGroup);
@@ -119,22 +139,19 @@ function init() {
   // --- HUD ---
   createHUD();
 
+  // --- VR kontrollerek ---
+  setupControllers();
+
   // --- Eseménykezelők ---
   window.addEventListener('resize', onWindowResize);
 
   window.addEventListener('keydown', (e) => {
     switch (e.code) {
       case 'KeyW':
-        input.leftUp = true;
+        input.rightUp = true;   // desktop: W = jobb pad fel
         break;
       case 'KeyS':
-        input.leftDown = true;
-        break;
-      case 'ArrowUp':
-        input.rightUp = true;
-        break;
-      case 'ArrowDown':
-        input.rightDown = true;
+        input.rightDown = true; // desktop: S = jobb pad le
         break;
       case 'Space':
         if (gameState === 'gameOver') {
@@ -147,21 +164,81 @@ function init() {
   window.addEventListener('keyup', (e) => {
     switch (e.code) {
       case 'KeyW':
-        input.leftUp = false;
-        break;
-      case 'KeyS':
-        input.leftDown = false;
-        break;
-      case 'ArrowUp':
         input.rightUp = false;
         break;
-      case 'ArrowDown':
+      case 'KeyS':
         input.rightDown = false;
         break;
     }
   });
 
   renderer.setAnimationLoop(renderLoop);
+}
+
+// --- VR kontrollerek beállítása ---
+function setupControllers() {
+  const controller0 = renderer.xr.getController(0);
+  const controller1 = renderer.xr.getController(1);
+
+  controller0.addEventListener('connected', function (event) {
+    const inputSource = event.data;
+    this.userData.inputSource = inputSource;
+
+    if (inputSource.handedness === 'right') {
+      rightController = this;
+      useVRRightPaddle = true;
+    } else if (inputSource.handedness === 'left') {
+      leftController = this;
+    }
+  });
+
+  controller0.addEventListener('disconnected', function () {
+    if (rightController === this) {
+      rightController = null;
+      useVRRightPaddle = false;
+    }
+    if (leftController === this) {
+      leftController = null;
+    }
+    delete this.userData.inputSource;
+  });
+
+  controller1.addEventListener('connected', function (event) {
+    const inputSource = event.data;
+    this.userData.inputSource = inputSource;
+
+    if (inputSource.handedness === 'right') {
+      rightController = this;
+      useVRRightPaddle = true;
+    } else if (inputSource.handedness === 'left') {
+      leftController = this;
+    }
+  });
+
+  controller1.addEventListener('disconnected', function () {
+    if (rightController === this) {
+      rightController = null;
+      useVRRightPaddle = false;
+    }
+    if (leftController === this) {
+      leftController = null;
+    }
+    delete this.userData.inputSource;
+  });
+
+  // opcionális kis gömb a kontrollereken, hogy lásd a kezedet
+  function addControllerVisual(ctrl) {
+    const geom = new THREE.SphereGeometry(0.03, 16, 16);
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+    const mesh = new THREE.Mesh(geom, mat);
+    ctrl.add(mesh);
+  }
+
+  addControllerVisual(controller0);
+  addControllerVisual(controller1);
+
+  scene.add(controller0);
+  scene.add(controller1);
 }
 
 // --- Resize ---
@@ -488,7 +565,7 @@ function drawTextToCanvas(canvas, ctx, texture, text, fontSize) {
 
 function updateScoreHUD() {
   if (!scoreCanvas || !scoreCtx || !scoreTexture) return;
-  const text = `Player ${leftScore} : ${rightScore} AI`;
+  const text = `AI ${leftScore} : ${rightScore} Player`;
   drawTextToCanvas(scoreCanvas, scoreCtx, scoreTexture, text, SCORE_FONT_SIZE);
 }
 
@@ -547,17 +624,60 @@ function renderLoop() {
   renderer.render(scene, camera);
 }
 
+// --- VR gombok kezelése (jobb kontroller) ---
+function handleVRButtons() {
+  if (!rightController || !rightController.userData.inputSource) return;
+  const inputSource = rightController.userData.inputSource;
+  const gp = inputSource.gamepad;
+  if (!gp || !gp.buttons) return;
+
+  const buttons = gp.buttons;
+
+  if (!prevRightButtons || prevRightButtons.length !== buttons.length) {
+    prevRightButtons = buttons.map(b => b.pressed);
+  }
+
+  const primaryPressed = buttons[0] ? buttons[0].pressed : false;   // A / X
+  const secondaryPressed = buttons[1] ? buttons[1].pressed : false; // B / Y
+
+  const prevPrimary = prevRightButtons[0] || false;
+  const prevSecondary = prevRightButtons[1] || false;
+
+  // Primary (A/X) – kalibráció (aktuális kézpozíció = pálya közepe)
+  if (primaryPressed && !prevPrimary) {
+    calibrateRightPaddleCenter();
+    updateMessageHUD('Paddle center calibrated');
+  }
+
+  // Secondary (B/Y) – restart, ha game over
+  if (secondaryPressed && !prevSecondary) {
+    if (gameState === 'gameOver') {
+      resetMatch();
+    }
+  }
+
+  prevRightButtons[0] = primaryPressed;
+  prevRightButtons[1] = secondaryPressed;
+}
+
 // --- Pong logika ---
 function updateGame(dt) {
   const maxY = FIELD_HEIGHT / 2 - PADDLE_HEIGHT / 2;
 
-  if (input.leftUp) leftPaddle.position.y += PADDLE_SPEED * dt;
-  if (input.leftDown) leftPaddle.position.y -= PADDLE_SPEED * dt;
-  leftPaddle.position.y = THREE.MathUtils.clamp(leftPaddle.position.y, -maxY, maxY);
+  // VR gombok figyelése (ha VR-ben vagyunk)
+  if (isVR) {
+    handleVRButtons();
+  }
 
-  if (USE_AI_RIGHT_PADDLE) {
-    updateRightPaddleAI(dt, maxY);
+  // BAL PADDLE: mindig AI
+  updateLeftPaddleAI(dt, maxY);
+
+  // JOBB PADDLE:
+  if (isVR && useVRRightPaddle && rightController) {
+    // VR – jobb kontroller irányít
+    updateRightPaddleFromVR(maxY);
   } else {
+    // Desktop – W/S irányítja a jobb paddlet
     if (input.rightUp) rightPaddle.position.y += PADDLE_SPEED * dt;
     if (input.rightDown) rightPaddle.position.y -= PADDLE_SPEED * dt;
     rightPaddle.position.y = THREE.MathUtils.clamp(rightPaddle.position.y, -maxY, maxY);
@@ -603,29 +723,9 @@ function updateGame(dt) {
   }
 }
 
-function onScore(side) {
-  if (side === 'left') {
-    leftScore++;
-  } else {
-    rightScore++;
-  }
-
-  updateScoreHUD();
-
-  if (leftScore >= WIN_SCORE || rightScore >= WIN_SCORE) {
-    gameState = 'gameOver';
-    const winner = leftScore >= WIN_SCORE ? 'Player' : 'AI';
-    updateMessageHUD(`${winner} Wins!  (Press SPACE to restart)`);
-  } else {
-    gameState = 'roundOver';
-    roundCooldown = 1.2;
-    const msg = side === 'left' ? 'Player Scores!' : 'AI Scores!';
-    updateMessageHUD(msg);
-  }
-}
-
-// --- AI ---
-function updateRightPaddleAI(dt, maxY) {
+// --- Bal paddle AI ---
+function updateLeftPaddleAI(dt, maxY) {
+  // csak akkor mozogjon, ha a labda “érdekes” tartományban van (kicsit késlekedhet)
   aiErrorTimer -= dt;
   if (aiErrorTimer <= 0) {
     aiErrorTimer =
@@ -640,12 +740,70 @@ function updateRightPaddleAI(dt, maxY) {
     maxY
   );
 
-  const dy = targetY - rightPaddle.position.y;
+  const dy = targetY - leftPaddle.position.y;
   const maxMove = AI_FOLLOW_SPEED * dt;
-
   const move = THREE.MathUtils.clamp(dy, -maxMove, maxMove);
-  rightPaddle.position.y += move;
-  rightPaddle.position.y = THREE.MathUtils.clamp(rightPaddle.position.y, -maxY, maxY);
+  leftPaddle.position.y += move;
+  leftPaddle.position.y = THREE.MathUtils.clamp(leftPaddle.position.y, -maxY, maxY);
+}
+
+// --- Jobb paddle VR kontroller alapján ---
+function updateRightPaddleFromVR(maxY) {
+  if (!rightController) return;
+
+  const worldPos = new THREE.Vector3();
+  rightController.matrixWorld.decompose(
+    worldPos,
+    new THREE.Quaternion(),
+    new THREE.Vector3()
+  );
+
+  const localPos = worldPos.clone();
+  gameGroup.worldToLocal(localPos);
+
+  const baseY = localPos.y * VR_Y_SCALE;
+  const targetY = THREE.MathUtils.clamp(baseY - vrCenterOffset, -maxY, maxY);
+
+  rightPaddle.position.y = targetY;
+}
+
+// --- Kalibráció: aktuális kézpozíció legyen a pálya közepe ---
+function calibrateRightPaddleCenter() {
+  if (!rightController) return;
+
+  const worldPos = new THREE.Vector3();
+  rightController.matrixWorld.decompose(
+    worldPos,
+    new THREE.Quaternion(),
+    new THREE.Vector3()
+  );
+
+  const localPos = worldPos.clone();
+  gameGroup.worldToLocal(localPos);
+
+  vrCenterOffset = localPos.y * VR_Y_SCALE;
+}
+
+// --- Pont szerzés ---
+function onScore(side) {
+  if (side === 'left') {
+    leftScore++;
+  } else {
+    rightScore++;
+  }
+
+  updateScoreHUD();
+
+  if (leftScore >= WIN_SCORE || rightScore >= WIN_SCORE) {
+    gameState = 'gameOver';
+    const winner = leftScore >= WIN_SCORE ? 'AI' : 'Player';
+    updateMessageHUD(`${winner} Wins!  (Space / B/Y to restart)`);
+  } else {
+    gameState = 'roundOver';
+    roundCooldown = 1.2;
+    const msg = side === 'left' ? 'AI Scores!' : 'Player Scores!';
+    updateMessageHUD(msg);
+  }
 }
 
 // --- Ütközés ---
