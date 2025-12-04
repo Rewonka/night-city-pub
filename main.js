@@ -74,6 +74,84 @@ const input = {
   rightDown: false, // S
 };
 
+// --- Audio (Web Audio API) ---
+let audioCtx = null;
+
+function getAudioContext() {
+  if (!audioCtx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    audioCtx = new AC();
+  }
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
+  return audioCtx;
+}
+
+function playBeep({ frequency = 440, duration = 0.08, type = 'square', volume = 0.15 }) {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+
+  osc.type = type;
+  osc.frequency.value = frequency;
+  gain.gain.value = volume;
+
+  osc.connect(gain).connect(ctx.destination);
+
+  const now = ctx.currentTime;
+  osc.start(now);
+
+  // kis lecsengés
+  gain.gain.setTargetAtTime(0, now + duration * 0.4, duration * 0.3);
+  osc.stop(now + duration);
+}
+
+// Speciális hangok
+function playPaddleHitSound() {
+  playBeep({ frequency: 900, duration: 0.06, type: 'square', volume: 0.18 });
+}
+
+function playWallBounceSound() {
+  playBeep({ frequency: 600, duration: 0.05, type: 'square', volume: 0.12 });
+}
+
+function playScoreSound(side) {
+  if (side === 'right') {
+    // Player pont
+    playBeep({ frequency: 880, duration: 0.12, type: 'sawtooth', volume: 0.18 });
+    setTimeout(() => playBeep({ frequency: 1320, duration: 0.1, type: 'triangle', volume: 0.14 }), 70);
+  } else {
+    // AI pont
+    playBeep({ frequency: 440, duration: 0.12, type: 'sawtooth', volume: 0.15 });
+  }
+}
+
+function playGameOverSound(playerWon) {
+  if (playerWon) {
+    // kis "győzelmi" csilingelés
+    playBeep({ frequency: 880, duration: 0.12, type: 'triangle', volume: 0.2 });
+    setTimeout(() => playBeep({ frequency: 1180, duration: 0.12, type: 'triangle', volume: 0.18 }), 110);
+    setTimeout(() => playBeep({ frequency: 1480, duration: 0.16, type: 'triangle', volume: 0.18 }), 230);
+  } else {
+    // lefele menő "bukás" hang
+    playBeep({ frequency: 600, duration: 0.18, type: 'sawtooth', volume: 0.2 });
+    setTimeout(() => playBeep({ frequency: 400, duration: 0.18, type: 'sawtooth', volume: 0.18 }), 140);
+    setTimeout(() => playBeep({ frequency: 260, duration: 0.2, type: 'sawtooth', volume: 0.16 }), 280);
+  }
+}
+
+function playCalibrateSound() {
+  playBeep({ frequency: 720, duration: 0.1, type: 'triangle', volume: 0.16 });
+}
+
+// hogy a böngésző "gesture" után biztosan engedje a hangot
+window.addEventListener('pointerdown', () => getAudioContext());
+window.addEventListener('keydown', () => getAudioContext());
+
 // --- Init ---
 init();
 
@@ -488,7 +566,7 @@ function resetBall() {
 // --- HUD ---
 function createHUD() {
   {
-    const score = createTextSprite('Player 0 : 0 AI', SCORE_FONT_SIZE, 512);
+    const score = createTextSprite('AI 0 : 0 Player', SCORE_FONT_SIZE, 512);
     scoreSprite = score.sprite;
     scoreCanvas = score.canvas;
     scoreCtx = score.ctx;
@@ -646,6 +724,7 @@ function handleVRButtons() {
   // Primary (A/X) – kalibráció (aktuális kézpozíció = pálya közepe)
   if (primaryPressed && !prevPrimary) {
     calibrateRightPaddleCenter();
+    playCalibrateSound();
     updateMessageHUD('Paddle center calibrated');
   }
 
@@ -705,12 +784,15 @@ function updateGame(dt) {
   const halfFieldW = FIELD_WIDTH / 2;
   const halfFieldH = FIELD_HEIGHT / 2;
 
+  // Falról pattogás
   if (ball.position.y > halfFieldH) {
     ball.position.y = halfFieldH;
     ballVelocity.y *= -1;
+    playWallBounceSound();
   } else if (ball.position.y < -halfFieldH) {
     ball.position.y = -halfFieldH;
     ballVelocity.y *= -1;
+    playWallBounceSound();
   }
 
   checkPaddleCollision(leftPaddle);
@@ -725,7 +807,6 @@ function updateGame(dt) {
 
 // --- Bal paddle AI ---
 function updateLeftPaddleAI(dt, maxY) {
-  // csak akkor mozogjon, ha a labda “érdekes” tartományban van (kicsit késlekedhet)
   aiErrorTimer -= dt;
   if (aiErrorTimer <= 0) {
     aiErrorTimer =
@@ -793,11 +874,14 @@ function onScore(side) {
   }
 
   updateScoreHUD();
+  playScoreSound(side);
 
   if (leftScore >= WIN_SCORE || rightScore >= WIN_SCORE) {
     gameState = 'gameOver';
-    const winner = leftScore >= WIN_SCORE ? 'AI' : 'Player';
+    const playerWon = rightScore >= WIN_SCORE;
+    const winner = playerWon ? 'Player' : 'AI';
     updateMessageHUD(`${winner} Wins!  (Space / B/Y to restart)`);
+    playGameOverSound(playerWon);
   } else {
     gameState = 'roundOver';
     roundCooldown = 1.2;
@@ -828,5 +912,7 @@ function checkPaddleCollision(paddle) {
     ballVelocity.normalize();
 
     ballSpeed = Math.min(ballSpeed + 0.2, 5.0);
+
+    playPaddleHitSound();
   }
 }
