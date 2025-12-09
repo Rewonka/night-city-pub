@@ -1,8 +1,6 @@
 import { useNetworkStore } from './network';
-import { useGLTF } from '@react-three/drei';
 
 const PlayerAvatar = ({ player }: { player: any }) => {
-  const { scene } = useGLTF('assets/blaster.glb');
   
   return (
     <group position={[player.position.x, player.position.y, player.position.z]}>
@@ -17,22 +15,19 @@ const PlayerAvatar = ({ player }: { player: any }) => {
         <meshStandardMaterial color="darkblue" />
       </mesh>
       
-      {/* Gun/Controller - Always show */}
-      <group 
-        position={[
-          player.controller ? (player.controller.position.x - player.position.x) : 0.2,
-          player.controller ? (player.controller.position.y - player.position.y) : -0.3,
-          player.controller ? (player.controller.position.z - player.position.z) : -0.2
-        ]}
-        quaternion={player.controller ? [
-          player.controller.rotation.x,
-          player.controller.rotation.y,
-          player.controller.rotation.z,
-          player.controller.rotation.w
-        ] : [0, 0, 0, 1]}
-      >
-        <primitive object={scene.clone()} scale={0.5} />
-      </group>
+      {/* Controller */}
+      {player.controller && (
+        <mesh 
+          position={[
+            player.controller.position.x - player.position.x,
+            player.controller.position.y - player.position.y,
+            player.controller.position.z - player.position.z
+          ]}
+        >
+          <boxGeometry args={[0.05, 0.05, 0.15]} />
+          <meshStandardMaterial color="cyan" emissive="cyan" emissiveIntensity={0.5} />
+        </mesh>
+      )}
     </group>
   );
 };

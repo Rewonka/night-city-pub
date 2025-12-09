@@ -7,7 +7,7 @@
     "server": "node server.js",
     "format": "prettier --write ./src/**/*"
   },
-  "author": "Gabor Tyimofejev <rewonka@gmail.com>",
+  "author": "Gabor Tyimofejev <rewonka@gmail.com>, Balazs Nemeth <rivara.tyr@gmail.com>",
   "license": "",
   "dependencies": {
     "@react-three/drei": "^9.115.0",

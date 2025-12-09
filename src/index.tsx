@@ -63,15 +63,15 @@ const App = () => {
         <Environment preset="night" />
         {/* <ambientLight intensity={0.3} />
         <pointLight position={[0, 2, -1]} intensity={2} color="#00ffff" /> */}
-        <Floor />
-       {/*  <Gltf src="./assets/cyberpunk_nightclub.glb" scale={[3.5,3.5,3.5]}/> */}
+        {/* <Floor /> */}
+        <Gltf src="./assets/cyberpunk_nightclub.glb" scale={[3.5,3.5,3.5]}/>
         <GsapTicker />
         <XR store={xrStore}>
           {/* <PongPlayfield /> */}
           <PongGame />
-          <OtherPlayers />
+          {/* <OtherPlayers />
           <PositionTracker />
-          <ControllerTracker />
+          <ControllerTracker /> */}
         </XR>
       </Canvas>
       <div

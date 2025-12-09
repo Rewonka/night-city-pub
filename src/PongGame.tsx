@@ -610,7 +610,7 @@ export const PongGame = () => {
   });
 
   return (
-    <group ref={groupRef} position={[0, 1.2, -3]} scale={[0.8, 0.8, 0.8]}>
+    <group ref={groupRef} position={[0, 1.2, -2]} scale={[0.8, 0.8, 0.8]}>
       {/* TV Screen */}
       <mesh position={[0, 0, 0]}>
         <boxGeometry args={[4, 2.5, 0.05]} />
