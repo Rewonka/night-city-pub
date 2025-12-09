@@ -28,7 +28,7 @@ export const useNetworkStore = create<NetworkStore>((set, get) => ({
   players: new Map(),
 
   connect: () => {
-    const socket = io('http://127.0.0.1:8080');
+    const socket = io('https://night-city-pub-production.up.railway.app');
     
     socket.on('connect', () => {
       if (DEBUG.NETWORK) console.log('[CLIENT] Connected to server:', socket.id);
