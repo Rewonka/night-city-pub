@@ -63,6 +63,7 @@ const App = () => {
         <PerspectiveCamera makeDefault position={[0, 1.6, 2]} fov={75} />
         <Environment preset="night" />
         <Floor />
+        <Gltf src="./assets/cyberpunk_nightclub.glb" scale={[3.5,3.5,3.5]}/>
         <GsapTicker />
         <XR store={xrStore}></XR>
       </Canvas>
