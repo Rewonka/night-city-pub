@@ -53,6 +53,6 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 8080;
-server.listen(PORT, '127.0.0.1', () => {
-  console.log(`[SERVER] Multiplayer server running on 127.0.0.1:${PORT}`);
+server.listen(PORT, () => {
+  console.log(`[SERVER] Multiplayer server running on port ${PORT}`);
 });

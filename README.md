@@ -67,3 +67,5 @@ src/
 ## License
 
 MIT License - Built for Meta DevPost Championship 2025
+
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/Rewonka/night-city-pub)
