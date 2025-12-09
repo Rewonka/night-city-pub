@@ -17,6 +17,8 @@ import { useNetworkStore } from "./network";
 import { OtherPlayers } from "./players";
 import { PositionTracker } from "./position-tracker";
 import { ControllerTracker } from "./controller-tracker";
+import gsap from "gsap";
+import { PongGame } from "./PongGame";
 
 const xrStore = createXRStore({
   emulate: {
@@ -62,10 +64,13 @@ const App = () => {
         {/* <ambientLight intensity={0.3} />
         <pointLight position={[0, 2, -1]} intensity={2} color="#00ffff" /> */}
         <Floor />
-        <Gltf src="./assets/cyberpunk_nightclub.glb" scale={[3.5,3.5,3.5]}/>
+       {/*  <Gltf src="./assets/cyberpunk_nightclub.glb" scale={[3.5,3.5,3.5]}/> */}
         <GsapTicker />
         <XR store={xrStore}>
-          <PongPlayfield />
+          {/* <PongPlayfield /> */}
+          <PongGame />
+          <OtherPlayers />
+          <PositionTracker />
           <ControllerTracker />
         </XR>
       </Canvas>
