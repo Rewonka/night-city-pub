@@ -30,6 +30,11 @@ module.exports = {
     port: 8081,
     client: {
       overlay: { warnings: false, errors: true },
+      webSocketURL: {
+        hostname: "0.0.0.0",
+        port: 8081,
+        protocol: "wss",
+      },
     },
   },
   plugins: [
