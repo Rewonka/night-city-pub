@@ -40,6 +40,15 @@ const GsapTicker = () => {
   return null;
 };
 
+const Floor = () => {
+  return (
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
+      <planeGeometry args={[20, 20]} />
+      <meshStandardMaterial color="#1a1a1a" metalness={0.3} roughness={0.7} />
+    </mesh>
+  );
+};
+
 const App = () => {
   return (
     <>
@@ -52,7 +61,8 @@ const App = () => {
       >
         <color args={[0x808080]} attach={"background"}></color>
         <PerspectiveCamera makeDefault position={[0, 1.6, 2]} fov={75} />
-        <Environment preset="warehouse" />
+        <Environment preset="night" />
+        <Floor />
         <GsapTicker />
         <XR store={xrStore}></XR>
       </Canvas>
