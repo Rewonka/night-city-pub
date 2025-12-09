@@ -5,12 +5,18 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { Canvas, useFrame } from "@react-three/fiber";
-import { Environment, Gltf, PerspectiveCamera } from "@react-three/drei";
+import { Canvas } from "@react-three/fiber";
+import { PerspectiveCamera, Gltf, Environment } from "@react-three/drei";
 import { XR, createXRStore } from "@react-three/xr";
-
 import ReactDOM from "react-dom/client";
-import gsap from "gsap";
+import { useEffect } from "react";
+import { Floor } from "./components/Floor";
+import { PongPlayfield } from "./components/PongPlayfield";
+import { GsapTicker } from "./components/GsapTicker";
+import { useNetworkStore } from "./network";
+import { OtherPlayers } from "./players";
+import { PositionTracker } from "./position-tracker";
+import { ControllerTracker } from "./controller-tracker";
 
 const xrStore = createXRStore({
   emulate: {
@@ -33,23 +39,14 @@ const xrStore = createXRStore({
   },
 });
 
-const GsapTicker = () => {
-  useFrame(() => {
-    gsap.ticker.tick();
-  });
-  return null;
-};
-
-const Floor = () => {
-  return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
-      <planeGeometry args={[20, 20]} />
-      <meshStandardMaterial color="#1a1a1a" metalness={0.3} roughness={0.7} />
-    </mesh>
-  );
-};
-
 const App = () => {
+    const { connect, connected } = useNetworkStore();
+
+  useEffect(() => {
+    console.log('[CLIENT] Initializing multiplayer connection...');
+    connect();
+  }, [connect]);
+
   return (
     <>
       <Canvas
@@ -59,13 +56,18 @@ const App = () => {
           height: "100vh",
         }}
       >
-        <color args={[0x808080]} attach={"background"}></color>
+        <color args={[0x020308]} attach={"background"}></color>
         <PerspectiveCamera makeDefault position={[0, 1.6, 2]} fov={75} />
         <Environment preset="night" />
+        {/* <ambientLight intensity={0.3} />
+        <pointLight position={[0, 2, -1]} intensity={2} color="#00ffff" /> */}
         <Floor />
         <Gltf src="./assets/cyberpunk_nightclub.glb" scale={[3.5,3.5,3.5]}/>
         <GsapTicker />
-        <XR store={xrStore}></XR>
+        <XR store={xrStore}>
+          <PongPlayfield />
+          <ControllerTracker />
+        </XR>
       </Canvas>
       <div
         style={{
@@ -91,6 +93,10 @@ const App = () => {
             </a>
           </div>
         </div>
+        <div style={{ position: "fixed", bottom: "20px", left: "50%", transform: "translateX(-50%)", display: "flex", gap: "10px" }}>
+          <div style={{ color: connected ? "green" : "red", fontSize: "14px", alignSelf: "center" }}>
+            {connected ? "🟢 Connected" : "🔴 Disconnected"}
+          </div>
         <button
           onClick={() => xrStore.enterVR()}
           style={{
@@ -103,6 +109,7 @@ const App = () => {
         >
           Enter VR
         </button>
+      </div>
       </div>
     </>
   );
