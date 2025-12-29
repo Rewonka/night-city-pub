@@ -38,7 +38,13 @@ npm install
 npm run dev
 ```
 
-Visit `https://localhost:8081` in your browser or VR headset.
+After running starting in dev mode, the console will publish a https://192.168.x.y:8081 url, this is what you need to enter in your headset's browset to start the app.
+
+## Debugging
+
+Install Meta Qest Developer app: https://developers.meta.com/horizon/downloads/package/oculus-developer-hub-mac/ 
+
+Set up Chrome to debug the VR headset under chrome://inspect/#devices and check console logs: https://developers.meta.com/horizon/documentation/web/browser-remote-debugging/
 
 ## How to Play
 

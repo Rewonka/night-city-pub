@@ -1,7 +1,11 @@
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, useEffect } from "react";
 import { useFrame } from "@react-three/fiber";
 import { useXR } from "@react-three/xr";
-import { Text } from "@react-three/drei";
+import { Html } from '@react-three/drei';
+import { PlayerPaddleControl } from "./components/PlayerPaddleControl";
+import { StartButton } from "./components/StartButton";
+import { EndGameButton } from "./components/EndGameButton";
+import { Scoreboard } from "./components/Scoreboard";
 import * as THREE from "three";
 
 // --- Constants ---
@@ -230,45 +234,47 @@ const BallTrail = ({ positions }: { positions: THREE.Vector3[] }) => {
   );
 };
 
-// --- Start Button Component ---
-const StartButton = ({ onClick }: { onClick: () => void }) => {
-  return (
-    <group position={[0, 0, 0.2]}>
-      <mesh 
-        onClick={onClick}
-        onPointerOver={(e) => {
-          e.stopPropagation();
-          document.body.style.cursor = 'pointer';
-        }}
-        onPointerOut={(e) => {
-          e.stopPropagation();
-          document.body.style.cursor = 'default';
-        }}
-      >
-        <boxGeometry args={[1.2, 0.4, 0.1]} />
-        <meshStandardMaterial
-          color={0x00ff00}
-          emissive={0x00ff00}
-          emissiveIntensity={0.5}
-          metalness={0.8}
-          roughness={0.3}
-        />
-      </mesh>
-      <Text
-        position={[0, 0, 0.06]}
-        fontSize={0.15}
-        color="#000000"
-        anchorX="center"
-        anchorY="middle"
-      >
-        START
-      </Text>
-    </group>
-  );
-};
 
 // --- Main Pong Game Component ---
 export const PongGame = () => {
+  const inputSourceStates = useXR((xr: any) => xr.inputSourceStates);
+  const isPresenting = useXR((xr: any) => Boolean(xr.session));
+  // Used only for debug logging (avoid referencing an undefined identifier)
+  const controllers = useXR((xr: any) => xr.controllers);
+
+    // --- Hand Tracking Test Popup State ---
+    const [showHandPopup, setShowHandPopup] = useState(false);
+    const lastHandYRef = useRef<number | null>(null);
+    // Hand tracking test effect
+    
+    useFrame(() => {
+      let handY: number | null = null;
+      if (inputSourceStates && inputSourceStates.length) {
+        console.log("InputSourceStates:", inputSourceStates.length, inputSourceStates);
+        const rightHandState = inputSourceStates.find((s: any) => s.inputSource?.handedness === 'right' && s.type === 'hand');
+        if (rightHandState && rightHandState.inputSource?.hand) {
+          const joint = rightHandState.inputSource.hand.get('index-finger-tip') || rightHandState.inputSource.hand.get('wrist');
+          if (joint && joint.transform && groupRef.current) {
+            const pos = new THREE.Vector3(joint.transform.position.x, joint.transform.position.y, joint.transform.position.z);
+            groupRef.current.worldToLocal(pos);
+            handY = pos.y;
+          }
+        }
+      }
+      if (handY !== null) {
+        if (
+          lastHandYRef.current === null ||
+          Math.abs(handY - lastHandYRef.current) > 0.01
+        ) {
+          // Popup logic (kept for reference)
+          setShowHandPopup(true);
+          setTimeout(() => setShowHandPopup(false), 1000);
+          // Console log for diagnostics
+          console.log('[HandTracking] Right hand detected, y:', handY);
+        }
+        lastHandYRef.current = handY;
+      }
+    });
   const groupRef = useRef<THREE.Group>(null);
   const leftPaddleRef = useRef<THREE.Vector3>(
     new THREE.Vector3(-FIELD_WIDTH / 2 + 0.2, 0, 0.06)
@@ -296,8 +302,6 @@ export const PongGame = () => {
     rightUp: false,
     rightDown: false,
   });
-
-  const { controllers, isPresenting } = useXR();
 
   // Keyboard input
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -327,13 +331,18 @@ export const PongGame = () => {
     }
   }, []);
 
-  // Register keyboard events
-  if (typeof window !== "undefined") {
-    window.removeEventListener("keydown", handleKeyDown);
-    window.removeEventListener("keyup", handleKeyUp);
+  // Register keyboard events once per handler change (instead of every render)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
-  }
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, [handleKeyDown, handleKeyUp]);
 
   const resetBall = () => {
     ballRef.current.set(0, 0, 0.07);
@@ -433,44 +442,35 @@ export const PongGame = () => {
   };
 
   const updateRightPaddleFromVR = (maxY: number) => {
-    if (!controllers) return;
-    const rightController = controllers.find(
-      (c: any) => c.inputSource?.handedness === "right"
-    );
-    if (!rightController) return;
+    if (!inputSourceStates) return;
+    const rightControllerState = inputSourceStates.find((s: any) => s.inputSource?.handedness === 'right' && s.type === 'controller');
+    if (!rightControllerState || !rightControllerState.controller) return;
 
     const worldPos = new THREE.Vector3();
-    rightController.controller.getWorldPosition(worldPos);
+    rightControllerState.controller.getWorldPosition(worldPos);
 
     if (groupRef.current) {
       const localPos = worldPos.clone();
       groupRef.current.worldToLocal(localPos);
-      
       // Debug: log controller position
-      console.log("Controller Y:", localPos.y, "Scaled:", localPos.y * VR_Y_SCALE, "Offset:", vrCenterOffsetRef.current);
-      
+      console.log('Controller Y:', localPos.y, 'Scaled:', localPos.y * VR_Y_SCALE, 'Offset:', vrCenterOffsetRef.current);
+
       const baseY = localPos.y * VR_Y_SCALE;
-      const targetY = THREE.MathUtils.clamp(
-        baseY - vrCenterOffsetRef.current,
-        -maxY,
-        maxY
-      );
-      
-      console.log("Target Y:", targetY, "MaxY:", maxY);
-      
+      const targetY = THREE.MathUtils.clamp(baseY - vrCenterOffsetRef.current, -maxY, maxY);
+
+      console.log('Target Y:', targetY, 'MaxY:', maxY);
+
       rightPaddleRef.current.y = targetY;
     }
   };
 
   const calibrateRightPaddleCenter = () => {
-    if (!controllers) return;
-    const rightController = controllers.find(
-      (c: any) => c.inputSource?.handedness === "right"
-    );
-    if (!rightController) return;
+    if (!inputSourceStates) return;
+    const rightControllerState = inputSourceStates.find((s: any) => s.inputSource?.handedness === 'right' && s.type === 'controller');
+    if (!rightControllerState || !rightControllerState.controller) return;
 
     const worldPos = new THREE.Vector3();
-    rightController.controller.getWorldPosition(worldPos);
+    rightControllerState.controller.getWorldPosition(worldPos);
 
     if (groupRef.current) {
       groupRef.current.worldToLocal(worldPos);
@@ -479,19 +479,14 @@ export const PongGame = () => {
   };
 
   const handleVRButtons = () => {
-    if (!controllers) return;
-    const rightController = controllers.find(
-      (c: any) => c.inputSource?.handedness === "right"
-    );
-    if (!rightController || !rightController.inputSource?.gamepad) return;
+    if (!inputSourceStates) return;
+    const rightControllerState = inputSourceStates.find((s: any) => s.inputSource?.handedness === 'right' && s.type === 'controller');
+    if (!rightControllerState || !rightControllerState.inputSource?.gamepad) return;
 
-    const gp = rightController.inputSource.gamepad;
+    const gp = rightControllerState.inputSource.gamepad;
     const buttons = gp.buttons;
 
-    if (
-      !prevRightButtonsRef.current ||
-      prevRightButtonsRef.current.length !== buttons.length
-    ) {
+    if (!prevRightButtonsRef.current || prevRightButtonsRef.current.length !== buttons.length) {
       prevRightButtonsRef.current = buttons.map((b: any) => b.pressed);
     }
 
@@ -504,11 +499,11 @@ export const PongGame = () => {
     if (primaryPressed && !prevPrimary) {
       calibrateRightPaddleCenter();
       playCalibrateSound();
-      setMessage("Paddle center calibrated");
+      setMessage('Paddle center calibrated');
     }
 
     if (secondaryPressed && !prevSecondary) {
-      if (gameState === "gameOver" || gameState === "notStarted") {
+      if (gameState === 'gameOver' || gameState === 'notStarted') {
         resetMatch();
       }
     }
@@ -517,7 +512,9 @@ export const PongGame = () => {
     prevRightButtonsRef.current[1] = secondaryPressed;
   };
 
-  useFrame((_, delta) => {
+  // AI paddle and game logic still handled here
+  const _dbgFrameTs = useRef(0);
+  useFrame((state, delta) => {
     const dt = delta;
     const maxY = FIELD_HEIGHT / 2 - PADDLE_HEIGHT / 2;
 
@@ -528,26 +525,6 @@ export const PongGame = () => {
     // Update AI paddle (always, even when not started)
     if (gameState !== "notStarted") {
       updateLeftPaddleAI(dt, maxY);
-    }
-
-    // Update right paddle (always, even when not started)
-    const rightController = controllers ? controllers.find(
-      (c: any) => c.inputSource?.handedness === "right"
-    ) : null;
-    
-    console.log("isPresenting:", isPresenting, "rightController:", rightController ? "found" : "null");
-    
-    if (isPresenting && rightController) {
-      updateRightPaddleFromVR(maxY);
-    } else {
-      // Desktop controls
-      if (inputRef.current.rightUp) rightPaddleRef.current.y += PADDLE_SPEED * dt;
-      if (inputRef.current.rightDown) rightPaddleRef.current.y -= PADDLE_SPEED * dt;
-      rightPaddleRef.current.y = THREE.MathUtils.clamp(
-        rightPaddleRef.current.y,
-        -maxY,
-        maxY
-      );
     }
 
     // Don't run game logic if not started
@@ -610,75 +587,117 @@ export const PongGame = () => {
   });
 
   return (
-    <group ref={groupRef} position={[0, 1.2, -2]} scale={[0.8, 0.8, 0.8]}>
-      {/* TV Screen */}
-      <mesh position={[0, 0, 0]}>
-        <boxGeometry args={[4, 2.5, 0.05]} />
-        <meshStandardMaterial
-          color={0x05070b}
-          transparent
-          opacity={0.9}
-          metalness={0.85}
-          roughness={0.15}
-          emissive={0x001824}
-          emissiveIntensity={0.18}
-        />
-      </mesh>
+    <>
+      <PlayerPaddleControl
+        groupRef={groupRef}
+        rightPaddleRef={rightPaddleRef}
+        vrCenterOffsetRef={vrCenterOffsetRef}
+        VR_Y_SCALE={VR_Y_SCALE}
+        PADDLE_SPEED={PADDLE_SPEED}
+        maxY={FIELD_HEIGHT / 2 - PADDLE_HEIGHT / 2}
+        inputRef={inputRef}
+        isPresenting={isPresenting}
+      />
+      <group ref={groupRef} position={[0, 1.2, -2]} scale={[0.8, 0.8, 0.8]}>
+        {/* Hand Tracking Test Popup */}
+        {showHandPopup && (
+          <Html center position={[0, 0.7, 0.5]} zIndexRange={[100, 0]}>
+            <div style={{
+              background: 'rgba(0,0,0,0.85)',
+              color: '#00ffff',
+              padding: '18px 32px',
+              borderRadius: '16px',
+              fontSize: '1.5em',
+              fontWeight: 700,
+              border: '2px solid #00ffff',
+              boxShadow: '0 2px 16px #00ffff88',
+              pointerEvents: 'none',
+            }}>
+              Right hand detected moving!
+            </div>
+          </Html>
+        )}
 
-      {/* TV Frame */}
-      <group position={[0, 0, 0.001]}>
-        <mesh position={[0, 1.265, 0]}>
-          <boxGeometry args={[4.03, 0.03, 0.06]} />
-          <meshBasicMaterial color={0x00ffff} />
+        {/* TV Screen */}
+        <mesh position={[0, 0, 0]}>
+          <boxGeometry args={[4, 2.5, 0.05]} />
+          <meshStandardMaterial
+            color={0x05070b}
+            transparent
+            opacity={0.9}
+            metalness={0.85}
+            roughness={0.15}
+            emissive={0x001824}
+            emissiveIntensity={0.18}
+          />
         </mesh>
-        <mesh position={[0, -1.265, 0]}>
-          <boxGeometry args={[4.03, 0.03, 0.06]} />
-          <meshBasicMaterial color={0x00ffff} />
+
+        {/* Scoreboard (above play area) */}
+        <Scoreboard leftScore={leftScore} rightScore={rightScore} />
+
+        {/* TV Frame */}
+        <group position={[0, 0, 0.001]}>
+          <mesh position={[0, 1.265, 0]}>
+            <boxGeometry args={[4.03, 0.03, 0.06]} />
+            <meshBasicMaterial color={0x00ffff} />
+          </mesh>
+          <mesh position={[0, -1.265, 0]}>
+            <boxGeometry args={[4.03, 0.03, 0.06]} />
+            <meshBasicMaterial color={0x00ffff} />
+          </mesh>
+          <mesh position={[-2.015, 0, 0]}>
+            <boxGeometry args={[0.03, 2.53, 0.06]} />
+            <meshBasicMaterial color={0x00ffff} />
+          </mesh>
+          <mesh position={[2.015, 0, 0]}>
+            <boxGeometry args={[0.03, 2.53, 0.06]} />
+            <meshBasicMaterial color={0x00ffff} />
+          </mesh>
+        </group>
+
+        {/* Paddles */}
+        <Paddle
+          positionRef={leftPaddleRef}
+          color={0x00ffea}
+          emissiveColor={0x00ffff}
+        />
+        <Paddle
+          positionRef={rightPaddleRef}
+          color={0xff00ff}
+          emissiveColor={0xff00ff}
+        />
+
+        {/* Ball */}
+        <Ball position={[ballRef.current.x, ballRef.current.y, ballRef.current.z]} />
+
+        {/* Ball Trail */}
+        <BallTrail positions={trailPositions} />
+
+        {/* Start/Restart Button */}
+        {(gameState === "notStarted" || gameState === "gameOver") && (
+          <StartButton onClick={() => resetMatch()} />
+        )}
+
+        {/* End Game Button (only during play/roundOver) */}
+        {(gameState === "playing" || gameState === "roundOver") && (
+          <EndGameButton onClick={() => {
+            setGameState("notStarted");
+            setMessage("Press START or Space/B/Y to begin");
+          }} />
+        )}
+
+        {/* Score HUD */}
+        <mesh position={[0, 1.9, 0.25]} scale={[2.4, 0.6, 1]}>
+          <planeGeometry args={[1, 1]} />
+          <meshBasicMaterial transparent opacity={0} />
         </mesh>
-        <mesh position={[-2.015, 0, 0]}>
-          <boxGeometry args={[0.03, 2.53, 0.06]} />
-          <meshBasicMaterial color={0x00ffff} />
-        </mesh>
-        <mesh position={[2.015, 0, 0]}>
-          <boxGeometry args={[0.03, 2.53, 0.06]} />
-          <meshBasicMaterial color={0x00ffff} />
+
+        {/* Message HUD */}
+        <mesh position={[0, -1.9, 0.25]} scale={[3.0, 0.9, 1]}>
+          <planeGeometry args={[1, 1]} />
+          <meshBasicMaterial transparent opacity={0} />
         </mesh>
       </group>
-
-      {/* Paddles */}
-      <Paddle
-        positionRef={leftPaddleRef}
-        color={0x00ffea}
-        emissiveColor={0x00ffff}
-      />
-      <Paddle
-        positionRef={rightPaddleRef}
-        color={0xff00ff}
-        emissiveColor={0xff00ff}
-      />
-
-      {/* Ball */}
-      <Ball position={[ballRef.current.x, ballRef.current.y, ballRef.current.z]} />
-
-      {/* Ball Trail */}
-      <BallTrail positions={trailPositions} />
-
-      {/* Start/Restart Button */}
-      {(gameState === "notStarted" || gameState === "gameOver") && (
-        <StartButton onClick={() => resetMatch()} />
-      )}
-
-      {/* Score HUD */}
-      <mesh position={[0, 1.9, 0.25]} scale={[2.4, 0.6, 1]}>
-        <planeGeometry args={[1, 1]} />
-        <meshBasicMaterial transparent opacity={0} />
-      </mesh>
-
-      {/* Message HUD */}
-      <mesh position={[0, -1.9, 0.25]} scale={[3.0, 0.9, 1]}>
-        <planeGeometry args={[1, 1]} />
-        <meshBasicMaterial transparent opacity={0} />
-      </mesh>
-    </group>
+    </>
   );
 };
