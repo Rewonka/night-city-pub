@@ -10,6 +10,7 @@
   "author": "Gabor Tyimofejev <rewonka@gmail.com>, Balazs Nemeth <rivara.tyr@gmail.com>",
   "license": "",
   "dependencies": {
+    "@iwer/devui": "^1.1.2",
     "@react-three/drei": "^9.115.0",
     "@react-three/fiber": "^8.17.10",
     "@react-three/xr": "^6.4.0",

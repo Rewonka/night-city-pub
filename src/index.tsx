@@ -9,16 +9,15 @@ import { Canvas } from "@react-three/fiber";
 import { PerspectiveCamera, Gltf, Environment } from "@react-three/drei";
 import { XR, createXRStore } from "@react-three/xr";
 import ReactDOM from "react-dom/client";
-import { useEffect } from "react";
-import { Floor } from "./components/Floor";
-import { PongPlayfield } from "./components/PongPlayfield";
+import { useEffect, useMemo } from "react";
 import { GsapTicker } from "./components/GsapTicker";
 import { useNetworkStore } from "./network";
-import { OtherPlayers } from "./players";
-import { PositionTracker } from "./position-tracker";
-import { ControllerTracker } from "./controller-tracker";
-import gsap from "gsap";
-import { PongGame } from "./PongGame";
+
+import { GameHost } from "./games/core/GameHost";
+import { getGame } from "./games/core/registry";
+import { registerAllGames } from "./games/register";
+
+import { initIwerDevUI } from "./devtools/iwerDevui";
 
 const xrStore = createXRStore({
   emulate: {
@@ -41,13 +40,21 @@ const xrStore = createXRStore({
   },
 });
 
+// Dev-only WebXR emulation overlay (IWER/DevUI)
+initIwerDevUI();
+
+// Register games once at startup
+registerAllGames();
+
 const App = () => {
-    const { connect, connected } = useNetworkStore();
+  const { connect, connected } = useNetworkStore();
 
   useEffect(() => {
-    console.log('[CLIENT] Initializing multiplayer connection...');
+    console.log("[CLIENT] Initializing multiplayer connection...");
     connect();
   }, [connect]);
+
+  const activeGame = useMemo(() => getGame("pong"), []);
 
   return (
     <>
@@ -61,19 +68,15 @@ const App = () => {
         <color args={[0x020308]} attach={"background"}></color>
         <PerspectiveCamera makeDefault position={[0, 1.6, 2]} fov={75} />
         <Environment preset="night" />
-        {/* <ambientLight intensity={0.3} />
-        <pointLight position={[0, 2, -1]} intensity={2} color="#00ffff" /> */}
-        {/* <Floor /> */}
-        <Gltf src="./assets/cyberpunk_nightclub.glb" scale={[3.5,3.5,3.5]}/>
+
+        <Gltf src="./assets/cyberpunk_nightclub.glb" scale={[3.5, 3.5, 3.5]} />
         <GsapTicker />
+
         <XR store={xrStore}>
-          {/* <PongPlayfield /> */}
-          <PongGame />
-          {/* <OtherPlayers />
-          <PositionTracker />
-          <ControllerTracker /> */}
+          <GameHost game={activeGame} />
         </XR>
       </Canvas>
+
       <div
         style={{
           position: "fixed",
@@ -89,37 +92,50 @@ const App = () => {
         <div>
           <div style={{ paddingTop: "10px" }}>
             WebXR Night City Pub -&nbsp;
-            <a href="https://github.com/Rewonka/night-city-pub">
-              GitHub
-            </a>
+            <a href="https://github.com/Rewonka/night-city-pub">GitHub</a>
             &nbsp;|&nbsp; used source Meta webx-first-steps-react &nbsp;
             <a href="https://github.com/meta-quest/webxr-first-steps-react">
               GitHub
             </a>
           </div>
         </div>
-        <div style={{ position: "fixed", bottom: "20px", left: "50%", transform: "translateX(-50%)", display: "flex", gap: "10px" }}>
-          <div style={{ color: connected ? "green" : "red", fontSize: "14px", alignSelf: "center" }}>
-            {connected ? "🟢 Connected" : "🔴 Disconnected"}
-          </div>
-        <button
-          onClick={() => xrStore.enterVR()}
+
+        <div
           style={{
             position: "fixed",
             bottom: "20px",
             left: "50%",
             transform: "translateX(-50%)",
-            fontSize: "20px",
+            display: "flex",
+            gap: "10px",
           }}
         >
-          Enter VR
-        </button>
-      </div>
+          <div
+            style={{
+              color: connected ? "green" : "red",
+              fontSize: "14px",
+              alignSelf: "center",
+            }}
+          >
+            {connected ? "🟢 Connected" : "🔴 Disconnected"}
+          </div>
+
+          <button
+            onClick={() => xrStore.enterVR()}
+            style={{
+              position: "fixed",
+              bottom: "20px",
+              left: "50%",
+              transform: "translateX(-50%)",
+              fontSize: "20px",
+            }}
+          >
+            Enter VR
+          </button>
+        </div>
       </div>
     </>
   );
 };
 
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <App />,
-);
+ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(<App />);

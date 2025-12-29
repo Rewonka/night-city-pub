@@ -1,30 +1,22 @@
-/**
- * Game configuration (single source of truth).
- * Keep all tweakable numbers here to avoid magic values in gameplay code.
- */
-
 export type PongConfig = Readonly<{
   field: {
     width: number;
     height: number;
-    wallInset: number; // safety margin used by collisions (optional)
   };
 
   paddle: {
     width: number;
     height: number;
     speed: number; // units/sec
-    xOffsetFromWall: number; // how far paddles are from the side walls (toward center)
-    z: number;
+    xOffsetFromWall: number;
   };
 
   ball: {
-    z: number;
-    initialSpeed: number; // units/sec
-    initialDirection: { x: number; y: number }; // normalized later in physics step
-    speedIncreaseOnHit: number; // optional (0 = disabled)
-    maxSpeed: number; // safety cap
-    radius: number; // for better collision later
+    radius: number;
+    initialSpeed: number;
+    initialDirection: { x: number; y: number };
+    speedIncreaseOnHit: number;
+    maxSpeed: number;
   };
 
   scoring: {
@@ -34,8 +26,18 @@ export type PongConfig = Readonly<{
 
   ai: {
     followSpeed: number; // units/sec
-    errorOffsetMax: number; // max random offset in Y
+    errorOffsetMax: number;
     errorChangeInterval: { minSec: number; maxSec: number };
+  };
+
+  /**
+   * Where the whole pong board lives inside the pub.
+   * You can tweak these later once you decide the exact location.
+   */
+  placement: {
+    position: [number, number, number];
+    rotationY: number; // radians
+    scale: number;
   };
 
   xr: {
@@ -47,44 +49,26 @@ export type PongConfig = Readonly<{
   };
 
   hud: {
-    scoreLineHeightPx: number;
-    messageLineHeightPx: number;
     messageDefaultDurationMs: number;
   };
 }>;
 
-/**
- * Default config mirrors the current behavior in your existing PongGame.tsx:
- * - FIELD_WIDTH=3.6, FIELD_HEIGHT=2.1
- * - PADDLE_SPEED=2.5, PADDLE_HEIGHT=0.5
- * - AI follow/error values
- * - VR_Y_SCALE=2.0
- * - WIN_SCORE=5
- * - TRAIL_SEGMENTS=18
- * - ballSpeedRef initial = 2.0, ballVelocityRef initial = (1, 0.5)
- */
 export const DEFAULT_PONG_CONFIG: PongConfig = Object.freeze({
-  field: {
-    width: 3.6,
-    height: 2.1,
-    wallInset: 0.0,
-  },
+  field: { width: 3.6, height: 2.1 },
 
   paddle: {
     width: 0.1,
     height: 0.5,
     speed: 2.5,
     xOffsetFromWall: 0.2,
-    z: 0.06,
   },
 
   ball: {
-    z: 0.07,
+    radius: 0.06,
     initialSpeed: 2.0,
     initialDirection: { x: 1, y: 0.5 },
     speedIncreaseOnHit: 0.0,
     maxSpeed: 10.0,
-    radius: 0.06,
   },
 
   scoring: {
@@ -98,17 +82,16 @@ export const DEFAULT_PONG_CONFIG: PongConfig = Object.freeze({
     errorChangeInterval: { minSec: 0.6, maxSec: 1.4 },
   },
 
-  xr: {
-    vrYScale: 2.0,
+  // Default: player in pubban áll, tábla kb. előtte — később átállítod fix helyre
+  placement: {
+    position: [0, 1.2, -3],
+    rotationY: 0,
+    scale: 0.8,
   },
 
-  trail: {
-    segments: 18,
-  },
+  xr: { vrYScale: 2.0 },
 
-  hud: {
-    scoreLineHeightPx: 64,
-    messageLineHeightPx: 52,
-    messageDefaultDurationMs: 1400,
-  },
+  trail: { segments: 18 },
+
+  hud: { messageDefaultDurationMs: 1400 },
 });
