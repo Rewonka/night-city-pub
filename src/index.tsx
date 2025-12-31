@@ -6,10 +6,11 @@
  */
 
 import { Canvas } from "@react-three/fiber";
-import { PerspectiveCamera, Gltf, Environment } from "@react-three/drei";
-import { XR, createXRStore } from "@react-three/xr";
+import { PerspectiveCamera, Gltf, OrbitControls } from "@react-three/drei";
+import { XR, createXRStore, XROrigin, TeleportTarget } from "@react-three/xr";
 import ReactDOM from "react-dom/client";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Vector3 } from "three";
 import { GsapTicker } from "./components/GsapTicker";
 import { useNetworkStore } from "./network";
 
@@ -17,10 +18,13 @@ import { GameHost } from "./games/core/GameHost";
 import { getGame } from "./games/core/registry";
 import { registerAllGames } from "./games/register";
 
-import { initIwerDevUI } from "./devtools/iwerDevui";
+// Register games once at startup
+registerAllGames();
 
 const xrStore = createXRStore({
+  // Built-in iwer/devui injection (works great on desktop) :contentReference[oaicite:2]{index=2}
   emulate: {
+    inject: true,
     controller: {
       left: {
         position: [-0.15649, 1.43474, -0.38368],
@@ -38,23 +42,26 @@ const xrStore = createXRStore({
       },
     },
   },
+
+  // Optional, but useful if you use teleport:
+  controller: { teleportPointer: true },
+  hand: { teleportPointer: true },
 });
-
-// Dev-only WebXR emulation overlay (IWER/DevUI)
-initIwerDevUI();
-
-// Register games once at startup
-registerAllGames();
 
 const App = () => {
   const { connect, connected } = useNetworkStore();
+  const activeGame = useMemo(() => getGame("pong"), []);
+
+  // teleport origin
+  const [xrPosition, setXrPosition] = useState(() => new Vector3(0, 0, 0));
 
   useEffect(() => {
     console.log("[CLIENT] Initializing multiplayer connection...");
     connect();
-  }, [connect]);
 
-  const activeGame = useMemo(() => getGame("pong"), []);
+    // If emulator doesn't show automatically, inject manually:
+    // Win/Alt + E (pmndrs docs) :contentReference[oaicite:3]{index=3}
+  }, [connect]);
 
   return (
     <>
@@ -65,14 +72,32 @@ const App = () => {
           height: "100vh",
         }}
       >
-        <color args={[0x020308]} attach={"background"}></color>
+        <color args={[0x020308]} attach={"background"} />
         <PerspectiveCamera makeDefault position={[0, 1.6, 2]} fov={75} />
-        <Environment preset="night" />
+
+        {/* Desktop camera control (mouse) */}
+        <OrbitControls enableDamping />
+
+        {/* Simple lights (so the ceiling won't blow out as easily) */}
+        <ambientLight intensity={0.25} />
+        <pointLight position={[0, 2.5, 0]} intensity={2.0} />
+        <pointLight position={[2, 1.8, -2]} intensity={1.2} />
+        <pointLight position={[-2, 1.8, -2]} intensity={1.2} />
 
         <Gltf src="./assets/cyberpunk_nightclub.glb" scale={[3.5, 3.5, 3.5]} />
         <GsapTicker />
 
         <XR store={xrStore}>
+          <XROrigin position={xrPosition} />
+
+          {/* Teleport floor target for VR testing */}
+          <TeleportTarget onTeleport={setXrPosition}>
+            <mesh position={[0, 0, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+              <planeGeometry args={[30, 30]} />
+              <meshBasicMaterial transparent opacity={0} />
+            </mesh>
+          </TeleportTarget>
+
           <GameHost game={activeGame} />
         </XR>
       </Canvas>
@@ -87,9 +112,10 @@ const App = () => {
           justifyContent: "space-between",
           alignItems: "center",
           color: "white",
+          pointerEvents: "none",
         }}
       >
-        <div>
+        <div style={{ pointerEvents: "auto" }}>
           <div style={{ paddingTop: "10px" }}>
             WebXR Night City Pub -&nbsp;
             <a href="https://github.com/Rewonka/night-city-pub">GitHub</a>
@@ -108,27 +134,16 @@ const App = () => {
             transform: "translateX(-50%)",
             display: "flex",
             gap: "10px",
+            pointerEvents: "auto",
           }}
         >
-          <div
-            style={{
-              color: connected ? "green" : "red",
-              fontSize: "14px",
-              alignSelf: "center",
-            }}
-          >
+          <div style={{ color: connected ? "green" : "red", fontSize: "14px", alignSelf: "center" }}>
             {connected ? "🟢 Connected" : "🔴 Disconnected"}
           </div>
 
           <button
             onClick={() => xrStore.enterVR()}
-            style={{
-              position: "fixed",
-              bottom: "20px",
-              left: "50%",
-              transform: "translateX(-50%)",
-              fontSize: "20px",
-            }}
+            style={{ fontSize: "20px" }}
           >
             Enter VR
           </button>
